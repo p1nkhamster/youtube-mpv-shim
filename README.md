@@ -24,10 +24,11 @@ For browsers without a working cast button there are companion extensions for bo
 ## Setup
 
 ```sh
-npm install
-npm run build
-node dist/index.js          # or: npm run dev
+npm install -g youtube-mpv-shim
+youtube-mpv-shim
 ```
+
+(Running from source instead: clone the repo, `npm install`, `npm run build`, `node dist/index.js`.)
 
 You should see `"mpv on <hostname>" is discoverable`. Then:
 
@@ -41,9 +42,11 @@ The first cast spawns mpv; closing the mpv window is fine, the next cast respawn
 
 Both variants do the same: the toolbar button sends the current tab's video to mpv (resuming at your position, pausing the browser player), right-clicking a YouTube link offers *Play link in mpv*, and the options page sets the daemon port (default 9909).
 
-**Firefox / LibreWolf** (`extension/firefox/`, Manifest V2): load `extension/firefox/manifest.json` as a temporary add-on on the `about:debugging` page. Permanent installs need AMO signing; LibreWolf can instead disable `xpinstall.signatures.required` in `about:config` and install a zip of the folder from `about:addons`.
+**Firefox / LibreWolf** (Manifest V2): download `ytshim-firefox.xpi` from the [latest release](https://github.com/p1nkhamster/youtube-mpv-shim/releases/latest) and open it with Firefox. It is AMO-signed and installs permanently.
 
-**Chromium / Chrome / Brave / Edge** (`extension/chromium/`, Manifest V3): on the `chrome://extensions` page, enable developer mode and load `extension/chromium/` as an unpacked extension.
+**Chromium / Chrome / Brave / Edge** (Manifest V3): download and extract `ytshim-chromium.zip` from the [latest release](https://github.com/p1nkhamster/youtube-mpv-shim/releases/latest), then load the folder as an unpacked extension on the `chrome://extensions` page (developer mode).
+
+From source instead: the variants live in `extension/firefox/` (load as a temporary add-on on `about:debugging`) and `extension/chromium/` (load unpacked).
 
 The daemon's API binds to `127.0.0.1` and rejects requests from web pages, so only the extensions and local tools can use it:
 
