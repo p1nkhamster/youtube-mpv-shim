@@ -1,0 +1,121 @@
+import { Agent } from 'undici';
+import { Innertube, Log } from 'youtubei.js';
+import type { Logger } from 'yt-cast-receiver';
+
+export interface RelatedVideo {
+  id: string;
+  title: string;
+  author?: string;
+}
+
+export interface VideoDetails {
+  videos: RelatedVideo[];
+  // db above youtube's -14 lufs reference, null when unavailable
+  loudnessDb: number | null;
+}
+
+const MAX_RESULTS = 15;
+const CACHE_LIMIT = 30;
+
+// per-video details (recommendations + loudness) via the innertube api
+export default class RelatedVideosService {
+  #yt: Innertube | null = null;
+  #cache = new Map<string, VideoDetails>();
+  #logger: Logger;
+  #cookieProvider: (() => string | null) | null = null;
+  // yt-cast-receiver holds long-poll connections to www.youtube.com on the
+  // global fetch pool; sharing it makes our requests hang forever
+  #dispatcher = new Agent();
+
+  constructor(logger: Logger, cookieProvider?: () => string | null) {
+    this.#logger = logger;
+    this.#cookieProvider = cookieProvider ?? null;
+    try {
+      Log.setLevel(Log.Level.ERROR); // parser warnings are noisy
+    }
+    catch {
+      // best effort
+    }
+  }
+
+  async get(videoId: string): Promise<VideoDetails> {
+    const cached = this.#cache.get(videoId);
+    if (cached) {
+      return cached;
+    }
+    this.#logger.debug(`[related] fetching details for ${videoId}`);
+    // full session needed for audio_config; cookies get past bot checks that
+    // otherwise withhold the player response including loudness data
+    this.#yt ??= await Innertube.create({
+      cookie: this.#cookieProvider?.() ?? undefined,
+      // built-in fetch understands both the dispatcher init option and the
+      // request objects youtubei.js passes
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetch: (input: any, init?: any) => fetch(input, { ...init, dispatcher: this.#dispatcher } as any)
+    });
+    this.#logger.debug('[related] innertube session ready');
+    const info = await this.#yt.getInfo(videoId);
+    const feed: unknown[] = (info as unknown as { watch_next_feed?: unknown[] }).watch_next_feed ?? [];
+    const videos: RelatedVideo[] = [];
+    for (const item of feed) {
+      const video = extractVideo(item);
+      if (video) {
+        videos.push(video);
+      }
+      if (videos.length >= MAX_RESULTS) {
+        break;
+      }
+    }
+
+    const rawLoudness = (info as unknown as {
+      player_config?: { audio_config?: { loudness_db?: number } }
+    }).player_config?.audio_config?.loudness_db;
+    const loudnessDb = typeof rawLoudness === 'number' && isFinite(rawLoudness) ? rawLoudness : null;
+
+    const details: VideoDetails = { videos, loudnessDb };
+    this.#logger.debug(`[related] ${videos.length} recommendations, loudness ${loudnessDb ?? 'n/a'} dB for ${videoId}`);
+    if (this.#cache.size >= CACHE_LIMIT) {
+      const oldest = this.#cache.keys().next().value;
+      if (oldest) {
+        this.#cache.delete(oldest);
+      }
+    }
+    this.#cache.set(videoId, details);
+    return details;
+  }
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function extractVideo(item: any): RelatedVideo | null {
+  try {
+    // newer ui model
+    if (item.type === 'LockupView') {
+      if (item.content_type !== 'VIDEO' || typeof item.content_id !== 'string') {
+        return null;
+      }
+      const title = textOf(item.metadata?.title);
+      const byline = textOf(item.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text);
+      return title ? { id: item.content_id, title, author: byline || undefined } : null;
+    }
+    // legacy model
+    if (item.type === 'CompactVideo' && typeof item.id === 'string') {
+      const title = textOf(item.title);
+      return title ? { id: item.id, title, author: textOf(item.author?.name) || undefined } : null;
+    }
+  }
+  catch {
+    // fall through
+  }
+  return null;
+}
+
+function textOf(value: any): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value && typeof value.toString === 'function') {
+    const s = String(value);
+    return s === '[object Object]' ? '' : s;
+  }
+  return '';
+}

@@ -1,0 +1,29 @@
+{
+  "name": "youtube-mpv-shim",
+  "version": "1.0.0",
+  "description": "Cast YouTube to mpv: your PC appears as a YouTube cast target and plays videos in a local mpv window",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "youtube-mpv-shim": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "undici": "^8.10.0",
+    "youtubei.js": "^16.0.1",
+    "yt-cast-receiver": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,8 @@
+# xdg autostart entry (linux): cp to ~/.config/autostart/
+# adjust Exec if you run from a checkout instead of an installed bin
+[Desktop Entry]
+Type=Application
+Name=youtube-mpv-shim
+Comment=YouTube cast receiver playing to mpv
+Exec=youtube-mpv-shim
+X-GNOME-Autostart-enabled=true

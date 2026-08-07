@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "name": "YouTube mpv shim",
+  "version": "1.0.0",
+  "description": "Send the current YouTube video to your local youtube-mpv-shim daemon for playback in mpv",
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage",
+    "http://127.0.0.1/*"
+  ],
+  "browser_action": {
+    "default_title": "Play in mpv",
+    "default_icon": "icons/icon.svg"
+  },
+  "options_ui": {
+    "page": "options.html"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@youtube-mpv-shim"
+    }
+  }
+}
