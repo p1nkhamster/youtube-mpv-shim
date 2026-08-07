@@ -1,12 +1,6 @@
 # builds and signs the browser extensions and creates a github release
-# whenever a version tag is pushed.
-#
-# requires two repository secrets (settings > secrets and variables > actions):
-#   AMO_API_KEY    - jwt issuer from addons.mozilla.org/developers/addon/api/key/
-#   AMO_API_SECRET - jwt secret from the same page
-#
-# both extension manifests must carry the same version as the tag; amo
-# refuses to sign a version twice, so bump them with every release.
+# whenever a version tag is pushed. package.json and both extension
+# manifests must carry the same version as the tag.
 
 name: release
 
