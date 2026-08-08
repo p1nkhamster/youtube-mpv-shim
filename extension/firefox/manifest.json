@@ -25,7 +25,10 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "extension@youtube-mpv-shim"
+      "id": "extension@youtube-mpv-shim",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }
