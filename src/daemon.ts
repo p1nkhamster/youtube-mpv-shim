@@ -125,7 +125,9 @@ export default class Daemon {
         this.#currentVideoId = parsed?.videoId ?? null;
         this.#logger.debug(`[related] current video: ${this.#currentVideoId ?? `none (path: ${path})`}`);
         if (this.#currentVideoId) {
-          void this.#pushRelated(this.#currentVideoId);
+          // sequenced so the captions push hits the details cache
+          const id = this.#currentVideoId;
+          void this.#pushRelated(id).then(() => this.#pushCaptions(id));
         }
         if (this.#stableVolumeEnabled()) {
           void this.#applyStableVolume();
@@ -140,6 +142,7 @@ export default class Daemon {
     this.#mpv.on('ready', () => {
       this.#mpv.sendScriptMessage(MENU_SCRIPT_NAME, 'ytshim-stable-volume', this.#stableVolumeEnabled() ? 'on' : 'off');
       this.#mpv.sendScriptMessage(MENU_SCRIPT_NAME, 'ytshim-sponsorblock', this.#sponsorBlockEnabled() ? 'on' : 'off');
+      this.#mpv.sendScriptMessage(MENU_SCRIPT_NAME, 'ytshim-captions-pref', this.#captionsPref());
     });
 
     this.#mpv.on('client-message', (args: string[]) => {
@@ -152,16 +155,29 @@ export default class Daemon {
       else if (args[1] === 'request-related' && this.#currentVideoId) {
         void this.#pushRelated(this.#currentVideoId);
       }
+      else if (args[1] === 'request-captions' && this.#currentVideoId) {
+        void this.#pushCaptions(this.#currentVideoId);
+      }
       else if (args[1] === 'stable-volume') {
         void this.#setStableVolume(args[2] === 'on');
       }
       else if (args[1] === 'sponsorblock') {
         void this.#setSponsorBlock(args[2] === 'on');
       }
+      else if (args[1] === 'captions-pref' && args[2]) {
+        this.#subtitlePref = args[2];
+        this.#playerState?.setSubtitlePref(args[2]);
+        this.#logger.debug(`[daemon] subtitle pref: ${args[2]}`);
+      }
     });
   }
 
   #stableVolume = false;
+  #subtitlePref = 'off';
+
+  #captionsPref(): string {
+    return this.#playerState ? this.#playerState.subtitlePref : this.#subtitlePref;
+  }
 
   #stableVolumeEnabled(): boolean {
     return this.#playerState ? this.#playerState.stableVolume : this.#stableVolume;
@@ -266,6 +282,22 @@ export default class Daemon {
     // video may have changed while fetching
     if (this.#currentVideoId === videoId) {
       this.#mpv.sendScriptMessage(MENU_SCRIPT_NAME, 'ytshim-related', payload);
+    }
+  }
+
+  async #pushCaptions(videoId: string): Promise<void> {
+    let payload: string;
+    try {
+      const { captions } = await this.#related.get(videoId);
+      payload = JSON.stringify({ tracks: captions });
+    }
+    catch (err) {
+      this.#logger.warn('[related] failed to fetch captions:', err instanceof Error ? err.message : err);
+      payload = JSON.stringify({ tracks: [] });
+    }
+    // video may have changed while fetching
+    if (this.#currentVideoId === videoId) {
+      this.#mpv.sendScriptMessage(MENU_SCRIPT_NAME, 'ytshim-captions', payload);
     }
   }
 

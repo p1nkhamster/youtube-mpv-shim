@@ -9,6 +9,8 @@ export interface PersistedPlayerState {
   ytdlFormat?: string;
   stableVolume?: boolean;
   sponsorBlock?: boolean;
+  // 'off', a language code, or 'auto:<lang>' for auto-generated captions
+  subtitlePref?: string;
 }
 
 const TRACKED: Record<string, { key: keyof PersistedPlayerState, valid: (v: unknown) => boolean }> = {
@@ -42,6 +44,9 @@ export default class PlayerStateStore {
       if (typeof raw.sponsorBlock === 'boolean') {
         this.#state.sponsorBlock = raw.sponsorBlock;
       }
+      if (typeof raw.subtitlePref === 'string' && raw.subtitlePref) {
+        this.#state.subtitlePref = raw.subtitlePref;
+      }
       this.#logger.debug('[state] restored player state:', this.#state);
     }
     catch {
@@ -67,6 +72,17 @@ export default class PlayerStateStore {
   setSponsorBlock(enabled: boolean): void {
     if (this.#state.sponsorBlock !== enabled) {
       this.#state.sponsorBlock = enabled;
+      this.#scheduleSave();
+    }
+  }
+
+  get subtitlePref(): string {
+    return this.#state.subtitlePref ?? 'off';
+  }
+
+  setSubtitlePref(pref: string): void {
+    if (this.#state.subtitlePref !== pref) {
+      this.#state.subtitlePref = pref;
       this.#scheduleSave();
     }
   }

@@ -19,6 +19,12 @@ options.read_options(opts, 'ytshim_menu')
 
 local menu_stack = {}
 local related = nil -- nil = not loaded yet, {} = loaded but empty
+local captions = nil -- auto caption tracks pushed by the daemon, same nil/{} convention
+local added_caption_urls = {} -- urls already sub-added this file
+-- remembered subtitle choice, kept across videos and persisted by the
+-- daemon; nil = off, otherwise { lang, auto }
+local caption_pref = nil
+local subs_restored = false -- restore runs once per file
 local saved_osd = nil
 
 local OSD_DURATION = '2147483647'
@@ -173,7 +179,7 @@ end
 
 -- ---------------------------------------------------------------- submenus
 
-local function build_track_menu(track_type, prop, title)
+local function build_track_menu(track_type, prop, title, on_select)
   local items = {}
   local active = mp.get_property_native(prop)
   items[#items + 1] = {
@@ -181,6 +187,7 @@ local function build_track_menu(track_type, prop, title)
     checked = (active == false or active == nil),
     action = function()
       mp.set_property(prop, 'no')
+      if on_select then on_select(nil) end
       close_menu()
     end
   }
@@ -196,6 +203,7 @@ local function build_track_menu(track_type, prop, title)
         checked = track.selected,
         action = function()
           mp.set_property_native(prop, track.id)
+          if on_select then on_select(track) end
           close_menu()
         end
       }
@@ -205,6 +213,91 @@ local function build_track_menu(track_type, prop, title)
     items = { { label = '(no file playing)' } }
   end
   return { title = title, items = items }
+end
+
+local function set_caption_pref(pref, value)
+  caption_pref = pref
+  mp.commandv('script-message', 'ytshim', 'captions-pref', value)
+end
+
+-- remember menu choices so the next video keeps them; tracks without a
+-- language cannot be matched later, so those leave the pref alone
+local function record_sub_choice(track)
+  if track == nil then
+    set_caption_pref(nil, 'off')
+  elseif track.lang then
+    local auto = added_caption_urls[track['external-filename'] or ''] ~= nil
+    set_caption_pref({ lang = track.lang, auto = auto }, (auto and 'auto:' or '') .. track.lang)
+  end
+end
+
+local function lang_primary(lang)
+  return string.lower(string.match(lang or '', '^[^-]+') or '')
+end
+
+-- subtitle variant of the track menu; auto captions are sub-added as
+-- unselected tracks the moment the daemon pushes them, so they show up
+-- here and in mpv's own ui as normal tracks
+local function build_sub_menu()
+  local menu = build_track_menu('sub', 'sid', 'Subtitles', record_sub_choice)
+  menu.is_sub_tracks = true
+  if captions == nil and mp.get_property('path') then
+    menu.items[#menu.items + 1] = { label = 'Loading auto captions...' }
+    mp.commandv('script-message', 'ytshim', 'request-captions')
+  end
+  return menu
+end
+
+-- load caption tracks into mpv without selecting them
+local function add_caption_tracks()
+  for _, c in ipairs(captions or {}) do
+    if not added_caption_urls[c.url] then
+      if mp.commandv('sub-add', c.url, 'auto', c.label, c.lang) then
+        added_caption_urls[c.url] = true
+      else
+        msg.warn('failed to add caption track: ' .. c.label)
+      end
+    end
+  end
+end
+
+-- reapply the remembered subtitle choice on a new video: native track on a
+-- language match, auto captions otherwise; keeping subs on beats matching
+-- the language exactly, so an off-language caption track is the last resort
+local function restore_subs()
+  if subs_restored or not caption_pref then
+    return
+  end
+  subs_restored = true
+  local sid = mp.get_property_native('sid')
+  if sid ~= false and sid ~= nil then
+    return -- something is already selected
+  end
+  local want = lang_primary(caption_pref.lang)
+  local native, caption_match, caption_any
+  for _, track in ipairs(mp.get_property_native('track-list') or {}) do
+    if track.type == 'sub' then
+      local is_caption = added_caption_urls[track['external-filename'] or ''] ~= nil
+      local match = lang_primary(track.lang) == want
+      if is_caption then
+        caption_any = caption_any or track.id
+        if match then
+          caption_match = caption_match or track.id
+        end
+      elseif match then
+        native = native or track.id
+      end
+    end
+  end
+  local pick
+  if caption_pref.auto then
+    pick = caption_match or native or caption_any
+  else
+    pick = native or caption_match or caption_any
+  end
+  if pick then
+    mp.set_property_native('sid', pick)
+  end
 end
 
 local function build_speed_menu()
@@ -408,7 +501,7 @@ local function build_main_menu()
     title = 'youtube-mpv-shim',
     items = {
       { label = 'Up Next / Recommendations', submenu = build_related_menu },
-      { label = 'Subtitles', submenu = function() return build_track_menu('sub', 'sid', 'Subtitles') end },
+      { label = 'Subtitles', submenu = build_sub_menu },
       { label = 'Audio Track', submenu = function() return build_track_menu('audio', 'aid', 'Audio Track') end },
       { label = 'Playback Speed', submenu = build_speed_menu },
       { label = 'Quality', hint = quality_label(), submenu = build_quality_menu },
@@ -510,6 +603,31 @@ mp.register_script_message('ytshim-related', function(json)
   end
 end)
 
+mp.register_script_message('ytshim-captions', function(json)
+  local parsed = utils.parse_json(json or '')
+  captions = (parsed and parsed.tracks) or {}
+  msg.info('received ' .. #captions .. ' auto caption track(s)')
+  add_caption_tracks()
+  restore_subs()
+  local menu = menu_stack[#menu_stack]
+  if menu and menu.is_sub_tracks then
+    local sel = menu.sel
+    menu_stack[#menu_stack] = build_sub_menu()
+    menu_stack[#menu_stack].sel = math.min(sel, math.max(1, #menu_stack[#menu_stack].items))
+    render()
+  end
+end)
+
+-- remembered subtitle choice arrives on every spawn like the toggles
+mp.register_script_message('ytshim-captions-pref', function(value)
+  if not value or value == '' or value == 'off' then
+    caption_pref = nil
+    return
+  end
+  local auto_lang = string.match(value, '^auto:(.+)$')
+  caption_pref = { lang = auto_lang or value, auto = auto_lang ~= nil }
+end)
+
 -- toggle states arrive on every spawn so they survive respawns and restarts
 mp.register_script_message('ytshim-stable-volume', function(value)
   stable_volume = (value == 'on')
@@ -548,6 +666,9 @@ end)
 -- new video started, stale per-video data no longer applies
 mp.register_event('start-file', function()
   related = nil
+  captions = nil
+  added_caption_urls = {}
+  subs_restored = false
   sb_segments = {}
   sb_prompt_seg = nil
   sb_last_skip_end = nil

@@ -8,10 +8,18 @@ export interface RelatedVideo {
   author?: string;
 }
 
+export interface CaptionTrack {
+  label: string;
+  lang: string;
+  url: string;
+}
+
 export interface VideoDetails {
   videos: RelatedVideo[];
   // youtube's official up-next pick, null when unavailable
   autoplayId: string | null;
+  // auto-generated (asr) caption tracks; manual subs come via ytdl_hook
+  captions: CaptionTrack[];
   // db above youtube's -14 lufs reference, null when unavailable
   loudnessDb: number | null;
 }
@@ -81,8 +89,19 @@ export default class RelatedVideosService {
     }).player_config?.audio_config?.loudness_db;
     const loudnessDb = typeof rawLoudness === 'number' && isFinite(rawLoudness) ? rawLoudness : null;
 
-    const details: VideoDetails = { videos, autoplayId, loudnessDb };
-    this.#logger.debug(`[related] ${videos.length} recommendations, up next ${autoplayId ?? 'n/a'}, loudness ${loudnessDb ?? 'n/a'} dB for ${videoId}`);
+    // caption urls from the web client are pot-gated and come back empty;
+    // the tv client's are directly fetchable, so captions need their own call
+    let captions: CaptionTrack[] = [];
+    try {
+      const basic = await this.#yt.getBasicInfo(videoId, { client: 'TV' });
+      captions = extractCaptions(basic);
+    }
+    catch (err) {
+      this.#logger.debug('[related] caption lookup failed:', err instanceof Error ? err.message : err);
+    }
+
+    const details: VideoDetails = { videos, autoplayId, captions, loudnessDb };
+    this.#logger.debug(`[related] ${videos.length} recommendations, up next ${autoplayId ?? 'n/a'}, ${captions.length} auto caption(s), loudness ${loudnessDb ?? 'n/a'} dB for ${videoId}`);
     if (this.#cache.size >= CACHE_LIMIT) {
       const oldest = this.#cache.keys().next().value;
       if (oldest) {
@@ -92,6 +111,28 @@ export default class RelatedVideosService {
     this.#cache.set(videoId, details);
     return details;
   }
+}
+
+function extractCaptions(info: unknown): CaptionTrack[] {
+  const rawTracks = (info as {
+    captions?: { caption_tracks?: { base_url?: unknown, name?: unknown, language_code?: unknown, kind?: unknown }[] }
+  }).captions?.caption_tracks ?? [];
+  const captions: CaptionTrack[] = [];
+  for (const track of rawTracks) {
+    if (track.kind !== 'asr' || typeof track.base_url !== 'string') {
+      continue;
+    }
+    try {
+      const url = new URL(track.base_url);
+      url.searchParams.set('fmt', 'vtt');
+      const lang = typeof track.language_code === 'string' ? track.language_code : '';
+      captions.push({ label: textOf(track.name) || lang, lang, url: url.toString() });
+    }
+    catch {
+      // malformed base url, skip
+    }
+  }
+  return captions;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
