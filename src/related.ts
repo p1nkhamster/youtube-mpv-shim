@@ -10,9 +10,13 @@ export interface RelatedVideo {
 
 export interface VideoDetails {
   videos: RelatedVideo[];
+  // youtube's official up-next pick, null when unavailable
+  autoplayId: string | null;
   // db above youtube's -14 lufs reference, null when unavailable
   loudnessDb: number | null;
 }
+
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 const MAX_RESULTS = 15;
 const CACHE_LIMIT = 30;
@@ -67,13 +71,18 @@ export default class RelatedVideosService {
       }
     }
 
+    const rawAutoplayId = (info as unknown as {
+      autoplay_video_endpoint?: { payload?: { videoId?: unknown } }
+    }).autoplay_video_endpoint?.payload?.videoId;
+    const autoplayId = typeof rawAutoplayId === 'string' && VIDEO_ID_RE.test(rawAutoplayId) ? rawAutoplayId : null;
+
     const rawLoudness = (info as unknown as {
       player_config?: { audio_config?: { loudness_db?: number } }
     }).player_config?.audio_config?.loudness_db;
     const loudnessDb = typeof rawLoudness === 'number' && isFinite(rawLoudness) ? rawLoudness : null;
 
-    const details: VideoDetails = { videos, loudnessDb };
-    this.#logger.debug(`[related] ${videos.length} recommendations, loudness ${loudnessDb ?? 'n/a'} dB for ${videoId}`);
+    const details: VideoDetails = { videos, autoplayId, loudnessDb };
+    this.#logger.debug(`[related] ${videos.length} recommendations, up next ${autoplayId ?? 'n/a'}, loudness ${loudnessDb ?? 'n/a'} dB for ${videoId}`);
     if (this.#cache.size >= CACHE_LIMIT) {
       const oldest = this.#cache.keys().next().value;
       if (oldest) {

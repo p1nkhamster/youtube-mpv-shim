@@ -100,7 +100,8 @@ Files: `config.json` (yours, hand-edited), `player-state.json` (auto-written: vo
     "extraArgs": [],              // e.g. ["--fs"] for fullscreen
     "socketPath": "..."           // mpv IPC socket/pipe; sensible per-OS default
   },
-  "autoplayOnConnect": true,      // YouTube "up next" autoplay
+  "autoplay": true,               // "up next" autoplay for extension/menu plays
+  "autoplayOnConnect": true,      // "up next" autoplay for cast sessions
   "menu": true,                   // in-mpv menu on the Enter key
   "persistState": true,           // remember volume/mute/speed/quality/toggles
   "stableVolumeFilter": "lavfi=[loudnorm=I=-14:TP=-1.5:LRA=11]",
@@ -122,6 +123,8 @@ Files: `config.json` (yours, hand-edited), `player-state.json` (auto-written: vo
 ```
 
 A partial `sponsorBlockBehavior` map merges over the defaults. CLI flags override the file: `--name`, `--dial-port`, `--http-port`, `--config`, `--log-level`, `--pairing-code`.
+
+With autoplay the mpv window closes at the end of each video and reopens for the next one; add `"--force-window=yes"` to `mpv.extraArgs` if you prefer a persistent window.
 
 Video quality starts as whatever your mpv.conf says (`ytdl-format=...`). A quality chosen in the menu takes precedence and persists.
 

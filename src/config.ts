@@ -15,6 +15,9 @@ export interface Config {
     socketPath: string;
   };
   autoplayOnConnect: boolean;
+  // up-next autoplay for direct plays (extension, menu); cast sessions
+  // use autoplayOnConnect instead
+  autoplay: boolean;
   menu: boolean;
   persistState: boolean;
   stableVolumeFilter: string;
@@ -40,6 +43,7 @@ export function defaultConfig(): Config {
       socketPath: defaultSocketPath()
     },
     autoplayOnConnect: true,
+    autoplay: true,
     menu: true,
     persistState: true,
     stableVolumeFilter: 'lavfi=[loudnorm=I=-14:TP=-1.5:LRA=11]',
@@ -90,6 +94,7 @@ export function loadConfig(configPath?: string): Config {
   if (typeof user.dialPort === 'number') cfg.dialPort = user.dialPort;
   if (typeof user.httpPort === 'number') cfg.httpPort = user.httpPort;
   if (typeof user.autoplayOnConnect === 'boolean') cfg.autoplayOnConnect = user.autoplayOnConnect;
+  if (typeof user.autoplay === 'boolean') cfg.autoplay = user.autoplay;
   if (typeof user.menu === 'boolean') cfg.menu = user.menu;
   if (typeof user.persistState === 'boolean') cfg.persistState = user.persistState;
   if (typeof user.stableVolumeFilter === 'string' && user.stableVolumeFilter) cfg.stableVolumeFilter = user.stableVolumeFilter;

@@ -1,8 +1,7 @@
 import http from 'http';
 import type { Logger } from 'yt-cast-receiver';
 import type MpvController from '../mpv/MpvController.js';
-import type MpvPlayer from '../player/MpvPlayer.js';
-import { directPlay } from '../playback.js';
+import type DirectPlayback from '../playback.js';
 import { parseYouTubeUrl } from '../util/youtubeUrl.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -10,7 +9,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 export interface HttpApiOptions {
   port: number;
   mpv: MpvController;
-  player: MpvPlayer;
+  playback: DirectPlayback;
   logger: Logger;
 }
 
@@ -18,7 +17,7 @@ export interface HttpApiOptions {
 // binds 127.0.0.1 only and rejects web-page origins so sites cannot drive it;
 // moz-extension:// and chrome-extension:// origins pass the check
 export function startHttpApi(opts: HttpApiOptions): Promise<http.Server> {
-  const { port, mpv, player, logger } = opts;
+  const { port, mpv, playback, logger } = opts;
 
   const server = http.createServer((req, res) => {
     const origin = req.headers.origin;
@@ -68,7 +67,7 @@ export function startHttpApi(opts: HttpApiOptions): Promise<http.Server> {
     const time = typeof body.time === 'number' && body.time > 0 ? Math.floor(body.time) : parsed.startTime;
     logger.info(`[api] play request: ${parsed.url} at ${time}s`);
 
-    const ok = await directPlay(mpv, player, parsed.url, time, logger);
+    const ok = await playback.play(parsed.url, time, parsed.videoId);
     if (ok) {
       sendJson(res, 200, { ok: true });
     }

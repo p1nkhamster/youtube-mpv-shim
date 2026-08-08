@@ -5,7 +5,7 @@ import YouTubeCastReceiver, { Constants } from 'yt-cast-receiver';
 import type { Config } from './config.js';
 import { startHttpApi } from './http/api.js';
 import MpvController from './mpv/MpvController.js';
-import { directPlay } from './playback.js';
+import DirectPlayback from './playback.js';
 import MpvPlayer from './player/MpvPlayer.js';
 import PlayerStateStore from './playerState.js';
 import RelatedVideosService from './related.js';
@@ -43,6 +43,7 @@ export default class Daemon {
   #sponsorBlockService: SponsorBlockService;
   #currentVideoId: string | null = null;
   #playerState: PlayerStateStore | null = null;
+  #playback: DirectPlayback;
 
   constructor(cfg: Config) {
     this.#cfg = cfg;
@@ -82,6 +83,7 @@ export default class Daemon {
       this.#mpv.on('prop-change', (name: string, value: unknown) => store.onPropChange(name, value));
     }
     this.#player = new MpvPlayer(this.#mpv, this.#logger);
+    this.#playback = new DirectPlayback(this.#mpv, this.#player, this.#related, cfg.autoplay, this.#logger);
     this.#wireMenuBridge();
     this.#receiver = new YouTubeCastReceiver(this.#player, {
       device: { name: cfg.deviceName, screenName: cfg.deviceName },
@@ -145,7 +147,7 @@ export default class Daemon {
         return;
       }
       if (args[1] === 'play' && args[2]) {
-        void directPlay(this.#mpv, this.#player, watchUrlFromVideoId(args[2]), 0, this.#logger);
+        void this.#playback.play(watchUrlFromVideoId(args[2]), 0, args[2]);
       }
       else if (args[1] === 'request-related' && this.#currentVideoId) {
         void this.#pushRelated(this.#currentVideoId);
@@ -277,7 +279,7 @@ export default class Daemon {
       this.#httpServer = await startHttpApi({
         port: this.#cfg.httpPort,
         mpv: this.#mpv,
-        player: this.#player,
+        playback: this.#playback,
         logger: this.#logger
       });
     }
