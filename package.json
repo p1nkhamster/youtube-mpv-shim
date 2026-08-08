@@ -1,6 +1,6 @@
 {
   "name": "youtube-mpv-shim",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Cast YouTube to mpv: your PC appears as a YouTube cast target and plays videos in a local mpv window",
   "type": "module",
   "license": "MIT",
