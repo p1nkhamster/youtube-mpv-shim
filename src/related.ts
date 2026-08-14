@@ -1,4 +1,4 @@
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { Innertube, Log } from 'youtubei.js';
 import type { Logger } from 'yt-cast-receiver';
 
@@ -29,9 +29,22 @@ const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const MAX_RESULTS = 15;
 const CACHE_LIMIT = 30;
 
+// undici's fetch brand-checks request objects, so the built-in Request
+// instances youtubei.js passes would be stringified; unpack them instead.
+// init already carries the final body/headers, only method lives on the request
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function isolatedFetch(dispatcher: Agent, input: any, init?: any): Promise<any> {
+  if (input instanceof Request) {
+    const body = init?.body ?? (input.body ? await input.arrayBuffer() : undefined);
+    return undiciFetch(input.url, { ...init, method: input.method, body, dispatcher });
+  }
+  return undiciFetch(input, { ...init, dispatcher });
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 // per-video details (recommendations + loudness) via the innertube api
 export default class RelatedVideosService {
-  #yt: Innertube | null = null;
+  #yt: Promise<Innertube> | null = null;
   #cache = new Map<string, VideoDetails>();
   #logger: Logger;
   #cookieProvider: (() => string | null) | null = null;
@@ -58,15 +71,23 @@ export default class RelatedVideosService {
     this.#logger.debug(`[related] fetching details for ${videoId}`);
     // full session needed for audio_config; cookies get past bot checks that
     // otherwise withhold the player response including loudness data
-    this.#yt ??= await Innertube.create({
+    this.#yt ??= Innertube.create({
       cookie: this.#cookieProvider?.() ?? undefined,
-      // built-in fetch understands both the dispatcher init option and the
-      // request objects youtubei.js passes
+      // undici's own fetch pairs with the undici agent regardless of node version
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fetch: (input: any, init?: any) => fetch(input, { ...init, dispatcher: this.#dispatcher } as any)
+      fetch: (input: any, init?: any) => isolatedFetch(this.#dispatcher, input, init)
     });
+    let yt: Innertube;
+    try {
+      yt = await this.#yt;
+    }
+    catch (err) {
+      // a failed session must not poison later calls
+      this.#yt = null;
+      throw err;
+    }
     this.#logger.debug('[related] innertube session ready');
-    const info = await this.#yt.getInfo(videoId);
+    const info = await yt.getInfo(videoId);
     const feed: unknown[] = (info as unknown as { watch_next_feed?: unknown[] }).watch_next_feed ?? [];
     const videos: RelatedVideo[] = [];
     for (const item of feed) {
@@ -93,7 +114,7 @@ export default class RelatedVideosService {
     // the tv client's are directly fetchable, so captions need their own call
     let captions: CaptionTrack[] = [];
     try {
-      const basic = await this.#yt.getBasicInfo(videoId, { client: 'TV' });
+      const basic = await yt.getBasicInfo(videoId, { client: 'TV' });
       captions = extractCaptions(basic);
     }
     catch (err) {

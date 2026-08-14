@@ -3,7 +3,7 @@ import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
 import type { Logger } from 'yt-cast-receiver';
-import { isWindowsPipe } from '../util/paths.js';
+import { isWindowsPipe, spawnEnv } from '../util/paths.js';
 import MpvIpcClient, { type MpvEvent } from './MpvIpcClient.js';
 
 export interface MpvControllerOptions {
@@ -20,6 +20,8 @@ const OBSERVED_PROPS = ['pause', 'time-pos', 'duration', 'volume', 'mute', 'idle
 const EXTERNAL_NOTIFY_PROPS = new Set(['pause', 'volume', 'mute']);
 
 const LOAD_TIMEOUT_MS = 60_000;
+
+const OUTPUT_TAIL_LINES = 20;
 
 interface PendingLoad {
   resolve: (success: boolean) => void;
@@ -44,6 +46,7 @@ export default class MpvController extends EventEmitter {
   #initialSeen = new Set<string>();
   #expected = new Map<string, Expectation[]>();
   #pendingLoad: PendingLoad | null = null;
+  #outputTail: string[] = [];
 
   constructor(opts: MpvControllerOptions, logger: Logger) {
     super();
@@ -81,16 +84,26 @@ export default class MpvController extends EventEmitter {
       `--input-ipc-server=${this.#opts.socketPath}`,
       '--idle=yes',
       '--keep-open=no',
-      '--no-terminal',
+      // no-terminal would silence stderr entirely; keep error lines for diagnosis
+      '--no-input-terminal',
+      '--msg-level=all=error',
       '--ytdl=yes',
       ...(this.#opts.menuScriptPath ? [`--script=${this.#opts.menuScriptPath}`] : []),
       ...this.#opts.extraArgs
     ];
     this.#logger.info(`[mpv] spawning: ${this.#opts.binary} ${args.join(' ')}`);
-    const child = spawn(this.#opts.binary, args, { stdio: 'ignore' });
+    const env = spawnEnv();
+    // mpv logs to stdout, but capture both streams to be safe
+    const child = spawn(this.#opts.binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     this.#child = child;
 
+    this.#outputTail = [];
+    this.#collectOutput(child.stdout);
+    this.#collectOutput(child.stderr);
+
+    const spawnFailure: { err: Error | null } = { err: null };
     child.on('error', (err) => {
+      spawnFailure.err = err;
       this.#logger.error('[mpv] failed to spawn:', err.message);
     });
     child.on('exit', (code, signal) => {
@@ -105,6 +118,9 @@ export default class MpvController extends EventEmitter {
     const ipc = new MpvIpcClient(this.#logger);
     const deadline = Date.now() + 10_000;
     for (;;) {
+      if (spawnFailure.err) {
+        throw new Error(`could not start mpv binary "${this.#opts.binary}": ${spawnFailure.err.message} (PATH=${env.PATH ?? ''})`);
+      }
       if (this.#child !== child || child.exitCode !== null) {
         throw new Error('mpv exited before the IPC socket became available');
       }
@@ -162,6 +178,8 @@ export default class MpvController extends EventEmitter {
     }
 
     this.#cancelPendingLoad();
+    // tail should only reflect the current attempt
+    this.#outputTail = [];
 
     // register the waiter before loadfile so events cannot race past it
     const loadedPromise = new Promise<boolean>((resolve) => {
@@ -202,6 +220,35 @@ export default class MpvController extends EventEmitter {
       await this.setPause(false).catch(() => undefined);
     }
     return loaded;
+  }
+
+  // mpv output lines from the current load attempt, oldest first
+  getRecentOutput(): string[] {
+    return [...this.#outputTail];
+  }
+
+  #collectOutput(stream: NodeJS.ReadableStream | null): void {
+    if (!stream) {
+      return;
+    }
+    let buf = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk: string) => {
+      buf += chunk;
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+        this.#logger.debug(`[mpv] ${trimmed}`);
+        this.#outputTail.push(trimmed);
+        if (this.#outputTail.length > OUTPUT_TAIL_LINES) {
+          this.#outputTail.shift();
+        }
+      }
+    });
   }
 
   async setPause(paused: boolean): Promise<void> {

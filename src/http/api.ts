@@ -67,13 +67,25 @@ export function startHttpApi(opts: HttpApiOptions): Promise<http.Server> {
     const time = typeof body.time === 'number' && body.time > 0 ? Math.floor(body.time) : parsed.startTime;
     logger.info(`[api] play request: ${parsed.url} at ${time}s`);
 
-    const ok = await playback.play(parsed.url, time, parsed.videoId);
+    let ok = false;
+    let detail = '';
+    try {
+      ok = await playback.play(parsed.url, time, parsed.videoId);
+    }
+    catch (err) {
+      detail = err instanceof Error ? err.message : String(err);
+      logger.error('[api] play failed:', detail);
+    }
     if (ok) {
       sendJson(res, 200, { ok: true });
+      return;
     }
-    else {
-      sendJson(res, 502, { ok: false, error: 'mpv failed to load the video (is yt-dlp installed and up to date?)' });
+    if (!detail) {
+      // surface mpv's own error output when we have it
+      const tail = mpv.getRecentOutput().slice(-3).join(' | ');
+      detail = tail || 'is yt-dlp installed and up to date?';
     }
+    sendJson(res, 502, { ok: false, error: `mpv failed to load the video (${detail})` });
   }
 
   return new Promise((resolve, reject) => {

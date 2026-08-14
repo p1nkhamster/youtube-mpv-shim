@@ -13,11 +13,11 @@ For browsers without a working cast button there are companion extensions for bo
 - SponsorBlock: auto-skips sponsor segments, "seek forward to skip" prompts for intros, outros, self-promo and interaction reminders
 - Browser extensions for Firefox-family and Chromium-family browsers
 - Settings and player state persist across restarts and updates
-- Works on Linux, Windows and macOS
+- Works on Linux, Windows and macOS (see [macOS notes](#macos-notes))
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 22.13
 - mpv (on PATH, or set `mpv.binary` in the config)
 - yt-dlp on PATH (keep it current - it is the most common cause of playback breakage: `yt-dlp -U` or your package manager)
 
@@ -37,6 +37,14 @@ You should see `"mpv on <hostname>" is discoverable`. Then:
 - **Firefox/LibreWolf and plain Chromium:** install the extension (below) and click its toolbar button on any YouTube page. Un-branded Chromium builds (distro packages) usually ship without Google's cast integration, so the in-player cast button never appears there; the extension is the reliable path.
 
 The first cast spawns mpv; closing the mpv window is fine, the next cast respawns it.
+
+## macOS notes
+
+- **Safari cannot cast.** Google's cast integration is proprietary to Chrome-family browsers; there is no Safari extension either. Use branded Chrome/Edge's in-player cast button, or the extension in Firefox/Chromium.
+- **Chrome's global cast menu (toolbar / three-dot menu) lists the device as "Available for specific video sites" and won't let you pick it.** That menu only launches Chromecast (mDNS) devices; this daemon is a DIAL device, which only the cast button *inside the YouTube player* can launch. This is expected, not a failure.
+- **Local Network permission (macOS 15+):** only the cast path needs it; the extension talks to the daemon over loopback and is unaffected. Cast discovery uses SSDP multicast, which macOS gates per app - if the device never shows up in a cast menu, grant "Local Network" access (System Settings → Privacy & Security → Local Network) to your browser and to whatever runs the daemon (Terminal, or node for a launchd agent).
+- **Homebrew PATH:** launchd agents and GUI-launched apps get a minimal `PATH` without `/opt/homebrew/bin`. The daemon appends `/opt/homebrew/bin` and `/usr/local/bin` automatically when spawning mpv and yt-dlp; if your mpv lives elsewhere, set `mpv.binary` to an absolute path in the config.
+- **Autostart:** a sample LaunchAgent ships in `autostart/youtube-mpv-shim.plist`. Adjust the node and youtube-mpv-shim paths inside (see `which node` / `which youtube-mpv-shim`), copy it to `~/Library/LaunchAgents/` and run `launchctl load ~/Library/LaunchAgents/youtube-mpv-shim.plist`.
 
 ## Browser extensions
 

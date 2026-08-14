@@ -28,7 +28,7 @@
     "prepublishOnly": "npm run build"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   },
   "dependencies": {
     "undici": "^8.10.0",

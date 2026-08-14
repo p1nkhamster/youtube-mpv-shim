@@ -13,7 +13,7 @@ import SponsorBlockService from './sponsorblock.js';
 import { loadYouTubeCookies, profileFromMpvArgs } from './util/browserCookies.js';
 import JsonFileDataStore from './util/JsonFileDataStore.js';
 import ConsoleLogger from './util/logger.js';
-import { configDir, migrateLegacyState } from './util/paths.js';
+import { configDir, migrateLegacyState, spawnEnv } from './util/paths.js';
 import { parseYouTubeUrl, watchUrlFromVideoId } from './util/youtubeUrl.js';
 
 const MENU_SCRIPT_PATH = fileURLToPath(new URL('../assets/ytshim_menu.lua', import.meta.url));
@@ -350,10 +350,10 @@ export default class Daemon {
 
   #checkYtDlp(): Promise<void> {
     return new Promise((resolve) => {
-      execFile('yt-dlp', ['--version'], (err, stdout) => {
+      execFile('yt-dlp', ['--version'], { env: spawnEnv() }, (err, stdout) => {
         if (err) {
           this.#logger.warn(
-            '[daemon] yt-dlp not found on PATH. mpv needs it to play YouTube URLs; install it and keep it updated.'
+            '[daemon] yt-dlp not found on PATH. mpv needs it to play YouTube URLs; install it and keep it updated (on macos: brew install yt-dlp).'
           );
         }
         else {

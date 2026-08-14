@@ -28,6 +28,21 @@ export function isWindowsPipe(p: string): boolean {
   return p.startsWith('\\\\.\\pipe\\');
 }
 
+// gui/launchd-launched processes on macos get a bare system path without
+// the homebrew prefixes, hiding mpv and yt-dlp
+export function spawnEnv(): NodeJS.ProcessEnv {
+  if (process.platform !== 'darwin') {
+    return process.env;
+  }
+  const parts = (process.env.PATH ?? '').split(':').filter(Boolean);
+  for (const dir of ['/opt/homebrew/bin', '/usr/local/bin']) {
+    if (!parts.includes(dir)) {
+      parts.push(dir);
+    }
+  }
+  return { ...process.env, PATH: parts.join(':') };
+}
+
 // state files used to live in ~/.local/state; move them into the config dir
 export function migrateLegacyState(logger: Logger): void {
   if (process.platform === 'win32') {
